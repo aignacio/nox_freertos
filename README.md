@@ -26,3 +26,7 @@ considering the **memory map** address below and the uart speed equal to 8-N-1 /
 ```bash
 python3 scripts/bootloader_elf.py --elf build/nox_freertos.elf --device /dev/ttyUSB1
 ```
+
+### Thanks!
+
+Most of the portable code such as the startup and the main code was copied from [NEORV32](https://github.com/stnolting/neorv32) repository and adapted the the NoX SoC.
