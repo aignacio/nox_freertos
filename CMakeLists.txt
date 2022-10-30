@@ -1,0 +1,155 @@
+cmake_minimum_required(VERSION 3.22.1)
+
+set(DOCKER_PATH "docker run --rm -v $(abspath ../..):/files -w /files aignacio/mpsoc ")
+set(PYTHON_EXEC /usr/bin/python3)
+set(CMAKE_C_COMPILER riscv32-unknown-elf-gcc)
+set(CMAKE_CXX_COMPILER riscv32-unknown-elf-g++)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE "STATIC_LIBRARY")
+
+project(nox_freertos VERSION 0.1)
+
+enable_language(C)
+enable_language(CXX)
+enable_language(ASM)
+
+# Defines
+set(TARGET_C_DEFINES
+  UART_MODE=REAL_UART
+  portasmHANDLE_INTERRUPT=SystemIrqHandler
+)
+
+# Extra CFlags
+set(TARGET_CFLAGS_EXTRA   "-mcmodel=medany")
+set(TARGET_CXXFLAGS_EXTRA "-mcmodel=medany")
+set(TARGET_LDFLAGS_EXTRA  "-Wl,-Map=output/image.map,--print-memory-usage")
+
+# Different linker scripts
+set(TARGET_LDSCRIPT_FLASH "${CMAKE_SOURCE_DIR}/sections.ld")
+
+# All C/CPP files
+file(GLOB_RECURSE SRC_FILES app/*.c app/*.cpp libs/uart/*.c)
+set(TARGET_C_SOURCES
+  "${SRC_FILES}"
+)
+
+# All ASM files
+set(TARGET_ASM_SOURCES
+  "startup/crt0.S"
+)
+
+# All includes
+set(TARGET_C_INCLUDES
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/libs/uart"
+)
+
+# Shared libraries linked with application
+set(TARGET_LIBS
+  "freertos_kernel"
+)
+
+# Shared library and linker script search paths
+set(TARGET_LIB_DIRECTORIES
+)
+
+# Device specific settings, goes to CFLAGS and LDFLAGS
+set(TARGET_CFLAGS_HARDWARE "-march=rv32i -mabi=ilp32")
+
+# Conditional flags
+# [DEBUG] cmake --build {DIR} --config Debug
+# Flags:
+# -Og: Optimize debugging experience. -Og should be the optimization level of choice for the standard edit-compile-debug
+#      cycle, offering a reasonable level of optimization while maintaining fast compilation and a good debugging experi
+#      ence.
+#  -g: Produce debugging information in the operating system’s native format (stabs, COFF, XCOFF, or DWARF). GDB can
+#      work with this debugging information.
+set(CMAKE_C_FLAGS_DEBUG     "-DDEBUG -Og -g")
+set(CMAKE_CXX_FLAGS_DEBUG   "-DDEBUG -Og -g")
+set(CMAKE_ASM_FLAGS_DEBUG   "-DDEBUG -Og -g")
+
+# [RELEASE] cmake --build {DIR} --config Release
+# Flags:
+# -O2: Optimize even more. GCC performs nearly all supported optimizations that do not involve a space-speed tradeoff.
+#      As compared to -O, this option increases both compilation time and the performance of the generated code.
+# -flto: Link time optimization is implemented as a GCC front end for a bytecode representation of GIMPLE that is
+#        emitted in special sections of .o files. Currently, LTO support is enabled in most ELF-based systems, as well
+#        as darwin, cygwin and mingw systems.
+set(CMAKE_C_FLAGS_RELEASE        "-DNDEBUG -O2")
+set(CMAKE_CXX_FLAGS_RELEASE      "-DNDEBUG -O2")
+set(CMAKE_ASM_FLAGS_RELEASE      "-DNDEBUG -O2")
+set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-flto")
+
+# Final compiler flags
+set(CMAKE_C_FLAGS
+  "${CMAKE_C_FLAGS} ${TARGET_CFLAGS_HARDWARE} ${TARGET_CFLAGS_EXTRA} -Wall -fdata-sections -ffunction-sections")
+set(CMAKE_CXX_FLAGS
+  "${CMAKE_CXX_FLAGS} ${TARGET_CFLAGS_HARDWARE} ${TARGET_CXXFLAGS_EXTRA} -Wall -fdata-sections -ffunction-sections")
+set(CMAKE_ASM_FLAGS
+  "${CMAKE_ASM_FLAGS} ${CMAKE_C_FLAGS} -x assembler-with-cpp")
+set(CMAKE_EXE_LINKER_FLAGS
+  "-Wl,--gc-sections -nostartfiles -nostdlib ${TARGET_LDFLAGS_EXTRA}")
+
+# FreeRTOS Configuration
+set(FREERTOS_PORT "GCC_RISC_V" CACHE STRING "")
+set(FREERTOS_CONFIG_FILE_DIRECTORY "${CMAKE_SOURCE_DIR}/include" CACHE STRING "")
+set(FREERTOS_HEAP "4" CACHE STRING "")
+add_subdirectory(libs/FreeRTOS-Kernel)
+
+# Shared sources, includes and definitions
+add_compile_definitions(${TARGET_C_DEFINES})
+include_directories(${TARGET_C_INCLUDES})
+link_directories(${TARGET_LIB_DIRECTORIES})
+link_libraries(
+  ${TARGET_LIBS}
+  "c"
+  "m"
+  "gcc"
+  "nosys"
+)
+
+# Create ELF
+add_executable("${CMAKE_PROJECT_NAME}.elf" ${TARGET_C_SOURCES} ${TARGET_ASM_SOURCES})
+target_link_options("${CMAKE_PROJECT_NAME}.elf"
+  PRIVATE "-T${TARGET_LDSCRIPT_FLASH}"
+  PRIVATE "-Wl,-Map=${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.map,--cref"
+)
+
+###############################
+# Post-processing cmds
+###############################
+
+# Disassembly - We only depend on the .elf so we can generate like this
+add_custom_command(TARGET "${CMAKE_PROJECT_NAME}.elf" POST_BUILD
+  COMMAND ${CMAKE_OBJDUMP} "-S" "-t" "-D" "-h" ${CMAKE_PROJECT_NAME}.elf ">" ${CMAKE_PROJECT_NAME}.asm
+)
+
+# Bin - Because the .data depends on .bin, we have to create a custom target and make it dependent on .elf that runs
+#       with the ALL target i.e everytime we have `make all`
+add_custom_target(
+  "${CMAKE_PROJECT_NAME}.bin" ALL
+  DEPENDS "${CMAKE_PROJECT_NAME}.elf"
+)
+add_custom_command(TARGET "${CMAKE_PROJECT_NAME}.bin"
+  COMMAND ${CMAKE_OBJCOPY} "-O" "binary" ${CMAKE_PROJECT_NAME}.elf ${CMAKE_PROJECT_NAME}.bin
+)
+
+# Data - Because the .v depends on .data, we have to create a custom target and make it dependent on .data that runs
+#        with the ALL target i.e everytime we have `make all`
+add_custom_target(
+  ${CMAKE_PROJECT_NAME}.data ALL
+  DEPENDS "${CMAKE_PROJECT_NAME}.bin"
+)
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME}.data
+  COMMAND ${PYTHON_EXEC} "../scripts/freedom-bin2hex.py" "--bit-width" "32" "${CMAKE_PROJECT_NAME}.bin"
+  "${CMAKE_PROJECT_NAME}.data"
+)
+
+# ROM Verilog module - Last thing to build after post-build
+add_custom_target(
+  ${CMAKE_PROJECT_NAME}_boot_rom.v ALL
+  DEPENDS "${CMAKE_PROJECT_NAME}.data"
+)
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME}_boot_rom.v
+  COMMAND ${PYTHON_EXEC} "../scripts/gen_rom.py" "--in_hex" "${CMAKE_PROJECT_NAME}.data" "--out_v"
+  "${CMAKE_PROJECT_NAME}_boot_rom.v"
+)

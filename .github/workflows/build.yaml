@@ -1,0 +1,16 @@
+name: Build
+on: [push, pull_request]
+
+jobs:
+  build_app:
+    runs-on: ubuntu-latest
+    container: aignacio/mpsoc:latest
+    steps:
+      - name: Run cmake
+        uses: actions/checkout@v3
+        with:
+          submodules: 'recursive'
+      - run: |
+          mkdir build && cd build
+          cmake ..
+          make all -j2
