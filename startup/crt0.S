@@ -200,7 +200,7 @@ __crt0_call_constructors_loop_end:
 __crt0_main_entry:
   addi x10, zero, 0       // x10 = a0 = argc = 0
   addi x11, zero, 0       // x11 = a1 = argv = 0
-  jal  x1,  main          // call actual app's main function
+  jal  x1,  setup         // call actual app's setup function
 
 __crt0_main_exit:         // main's "return" and "exit" will arrive here
   csrci mstatus, (1 << 3) // disable global IRQs (clear mstatus.mie)
