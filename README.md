@@ -4,7 +4,7 @@
 
 Run with a pre-built container with all the tools, including toolchain and python:
 ```bash
-docker run -it --rm --name mpsoc_sw -v $(pwd):/test -w /test aignacio/mpsoc bash
+docker run -it --rm --name mpsoc_sw -v $(pwd):/test -w /test aignacio/mpsoc_sw bash
 ```
 
 Once the container is up and running, proceed executing all the steps within the container terminal. In order to run the makefile, first generate with cmake through these cmds:
@@ -17,6 +17,8 @@ Finally build the app with this `make all`:
 ```bash
 make all -j24
 ```
+
+![demo](run.gif)
 
 ## Programming the hardware with the elf file
 
