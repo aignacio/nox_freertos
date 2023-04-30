@@ -3,7 +3,9 @@
 
 #define BOOT_ROM_BASE_ADDR      0x00000000
 #define DRAM_BASE_ADDR          0x10000000
+#define DRAM_SIZE               128K
 #define IRAM_BASE_ADDR          0xA0000000
+#define IRAM_SIZE               32K
 #define UART_BASE_ADDR          0xB0000000
 #define RESET_CTRL_BASE_ADDR    0xC0000000
 #define MTIMER_BASE_ADDR        0xF0000000
